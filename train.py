@@ -4,7 +4,7 @@
 # LICENSE file in the root directory of this source tree.
 import warnings
 warnings.filterwarnings('ignore', category=DeprecationWarning)
-
+import faulthandler; faulthandler.enable()
 import os
 os.environ['MKL_SERVICE_FORCE_INTEL'] = '1'
 os.environ['MUJOCO_GL'] = 'egl'
@@ -17,6 +17,7 @@ import torch
 from dm_env import specs
 
 import dmc
+import meta
 import utils
 from logger import Logger
 from replay_buffer import ReplayBufferStorage, make_replay_loader
@@ -40,10 +41,11 @@ class Workspace:
         utils.set_seed_everywhere(cfg.seed)
         self.device = torch.device(cfg.device)
         self.setup()
-
+        print("Setup done!")
         self.agent = make_agent(self.train_env.observation_spec(),
                                 self.train_env.action_spec(),
                                 self.cfg.agent)
+        print("Agent Made!")
         self.timer = utils.Timer()
         self._global_step = 0
         self._global_episode = 0
@@ -52,10 +54,14 @@ class Workspace:
         # create logger
         self.logger = Logger(self.work_dir, use_tb=self.cfg.use_tb)
         # create envs
-        self.train_env = dmc.make(self.cfg.task_name, self.cfg.frame_stack,
+        # self.train_env = dmc.make(self.cfg.task_name, self.cfg.frame_stack,
+        #                           self.cfg.action_repeat, self.cfg.seed)
+        # self.eval_env = dmc.make(self.cfg.task_name, self.cfg.frame_stack,
+        #                          self.cfg.action_repeat, self.cfg.seed)
+        self.train_env = meta.make(self.cfg.task_name, self.cfg.frame_stack,
                                   self.cfg.action_repeat, self.cfg.seed)
-        self.eval_env = dmc.make(self.cfg.task_name, self.cfg.frame_stack,
-                                 self.cfg.action_repeat, self.cfg.seed)
+        self.eval_env = meta.make(self.cfg.task_name, self.cfg.frame_stack,
+                                  self.cfg.action_repeat, self.cfg.seed)
         # create replay buffer
         data_specs = (self.train_env.observation_spec(),
                       self.train_env.action_spec(),
