@@ -6,8 +6,9 @@ import warnings
 warnings.filterwarnings('ignore', category=DeprecationWarning)
 import faulthandler; faulthandler.enable()
 import os
+# os.environ['LD_PRELOAD']='/usr/lib/x86_64-linux-gnu/libGLEW.so:/usr/lib/x86_64-linux-gnu/libGL.so'
 os.environ['MKL_SERVICE_FORCE_INTEL'] = '1'
-os.environ['MUJOCO_GL'] = 'egl'
+os.environ['MUJOCO_GL'] = 'osmesa' #'egl'
 
 from pathlib import Path
 
@@ -24,8 +25,7 @@ from replay_buffer import ReplayBufferStorage, make_replay_loader
 from video import TrainVideoRecorder, VideoRecorder
 
 torch.backends.cudnn.benchmark = True
-
-
+# timestep: 0 (observation), 1 (reward), 2 (done), 3(info)
 def make_agent(obs_spec, action_spec, cfg):
     cfg.obs_shape = obs_spec.shape
     cfg.action_shape = action_spec.shape
@@ -41,11 +41,9 @@ class Workspace:
         utils.set_seed_everywhere(cfg.seed)
         self.device = torch.device(cfg.device)
         self.setup()
-        print("Setup done!")
         self.agent = make_agent(self.train_env.observation_spec(),
                                 self.train_env.action_spec(),
                                 self.cfg.agent)
-        print("Agent Made!")
         self.timer = utils.Timer()
         self._global_step = 0
         self._global_episode = 0
@@ -108,7 +106,7 @@ class Workspace:
         while eval_until_episode(episode):
             time_step = self.eval_env.reset()
             self.video_recorder.init(self.eval_env, enabled=(episode == 0))
-            while not time_step.last():
+            while self.eval_env.curr_path_length == self.eval_env.max_path_length:
                 with torch.no_grad(), utils.eval_mode(self.agent):
                     action = self.agent.act(time_step.observation,
                                             self.global_step,
@@ -142,7 +140,7 @@ class Workspace:
         self.train_video_recorder.init(time_step.observation)
         metrics = None
         while train_until_step(self.global_step):
-            if time_step.last():
+            if self.train_env.curr_path_length == self.train_env.max_path_length:
                 self._global_episode += 1
                 self.train_video_recorder.save(f'{self.global_frame}.mp4')
                 # wait until all the metrics schema is populated

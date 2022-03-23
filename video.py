@@ -26,12 +26,7 @@ class VideoRecorder:
 
     def record(self, env):
         if self.enabled:
-            if hasattr(env, 'physics'):
-                frame = env.physics.render(height=self.render_size,
-                                           width=self.render_size,
-                                           camera_id=0)
-            else:
-                frame = env.render()
+            frame = env.render(offscreen=True, resolution=(84, 84), camera_name='topview') 
             self.frames.append(frame)
 
     def save(self, file_name):

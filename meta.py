@@ -4,29 +4,8 @@
 # LICENSE file in the root directory of this source tree.
 from collections import deque
 from typing import Any, NamedTuple
-from dm_env import StepType, specs
-from dm_control.suite.wrappers import action_scale
+from dm_env import specs
 import numpy as np
-
-
-class ExtendedTimeStep(NamedTuple):
-    step_type: Any
-    reward: Any
-    discount: Any
-    observation: Any
-    action: Any
-
-    def first(self):
-        return self.step_type == StepType.FIRST
-
-    def mid(self):
-        return self.step_type == StepType.MID
-
-    def last(self):
-        return self.step_type == StepType.LAST
-
-    def __getitem__(self, attr):
-        return getattr(self, attr)
 
 
 class ActionRepeatWrapper():
@@ -36,12 +15,14 @@ class ActionRepeatWrapper():
 
     def step(self, action):
         total_reward = 0.0
-        for _ in range(self._action_repeat):
-            time_step = self._env.step(action['action'])
-            total_reward += time_step.reward 
+        for _ in range(self._num_repeats):
+            obs, reward, done, info = self._env.step(action)
+            time_step = {"observation": obs, "reward": reward, "done": done, "info": info, "discount": 1.0, 'is_last': self._env.curr_path_length == self._env.max_path_length}
+            total_reward += time_step["reward"]
             if self._env.curr_path_length == self._env.max_path_length: #https://github.com/rlworkgroup/metaworld/issues/236
                 break
-        return time_step._replace(reward=total_reward)
+        time_step["reward"] = total_reward
+        return time_step
 
     def observation_spec(self):
         return self._env.observation_spec()
@@ -71,19 +52,22 @@ class FrameStackWrapper():
     def _transform_observation(self, time_step):
         assert len(self._frames) == self._num_frames
         obs = np.concatenate(list(self._frames), axis=0)
-        return time_step._replace(observation=obs)
+        time_step["observation"] = obs
+        return time_step
 
     def reset(self):
-        time_step = self._env.reset()
-        pixels = self._env.render(offscreen=True, resolution=(84, 84), camera_name='topview')
+        obs = self._env.reset()
+        time_step = {"observation": obs, "reward": 0, "done": False, "info": {}, "discount": 1.0, "is_last": False}
+        pixels = self._env.render(offscreen=True, resolution=(84, 84), camera_name='topview') 
         for _ in range(self._num_frames):
-            self._frames.append(pixels)
+            self._frames.append(pixels.transpose(2, 0, 1))
         return self._transform_observation(time_step)
 
     def step(self, action):
         time_step = self._env.step(action)
         pixels = self._env.render(offscreen=True, resolution=(84, 84), camera_name='topview') 
-        self._frames.append(pixels)
+        for _ in range(self._num_frames):
+            self._frames.append(pixels.transpose(2, 0, 1))
         return self._transform_observation(time_step)
 
     def observation_spec(self):
@@ -107,7 +91,7 @@ class ActionDTypeWrapper():
                                                'action')
 
     def step(self, action):
-        action = action.astype(self._env.action_spec().dtype)
+        action = action.astype(self._env.action_space.dtype)
         return self._env.step(action)
 
     def observation_spec(self):
@@ -122,7 +106,19 @@ class ActionDTypeWrapper():
     def __getattr__(self, name):
         return getattr(self._env, name)
 
+class ExtendedTimeStep(NamedTuple):
+    is_last: Any
+    reward: Any
+    discount: Any
+    observation: Any
+    action: Any
 
+    def last(self):
+        return self.is_last
+
+    def __getitem__(self, attr):
+        return getattr(self, attr)
+        
 class ExtendedTimeStepWrapper():
     def __init__(self, env):
         self._env = env
@@ -137,13 +133,13 @@ class ExtendedTimeStepWrapper():
 
     def _augment_time_step(self, time_step, action=None):
         if action is None:
-            action_spec = self.action_space
+            action_spec = self.action_spec()
             action = np.zeros(action_spec.shape, dtype=action_spec.dtype)
-        return ExtendedTimeStep(observation=time_step.observation,
-                                step_type=time_step.step_type,
+        return ExtendedTimeStep(observation=time_step["observation"],
                                 action=action,
-                                reward=time_step.reward or 0.0,
-                                discount=time_step.discount or 1.0)
+                                is_last=time_step["is_last"],
+                                reward=time_step["reward"] or 0.0,
+                                discount=time_step["discount"] or 1.0)
 
     def observation_spec(self):
         return self._env.observation_spec()
@@ -154,14 +150,12 @@ class ExtendedTimeStepWrapper():
     def __getattr__(self, name):
         return getattr(self._env, name)
 
-
 def make(name, frame_stack, action_repeat, seed):
     from metaworld.envs import ALL_V2_ENVIRONMENTS_GOAL_OBSERVABLE
     task = name.replace("_", "-") + "-v2-goal-observable"
     env = ALL_V2_ENVIRONMENTS_GOAL_OBSERVABLE[task]()
     env = ActionDTypeWrapper(env, np.float32)
     env = ActionRepeatWrapper(env, action_repeat)
-    # env = action_scale.Wrapper(env, minimum=-1.0, maximum=+1.0)
     # stack several frames
     env = FrameStackWrapper(env, frame_stack)
     env = ExtendedTimeStepWrapper(env)
