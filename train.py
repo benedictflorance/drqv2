@@ -56,10 +56,11 @@ class Workspace:
         #                           self.cfg.action_repeat, self.cfg.seed)
         # self.eval_env = dmc.make(self.cfg.task_name, self.cfg.frame_stack,
         #                          self.cfg.action_repeat, self.cfg.seed)
+        print("Using {}".format(self.cfg.camera))
         self.train_env = meta.make(self.cfg.task_name, self.cfg.frame_stack,
-                                  self.cfg.action_repeat, self.cfg.seed)
+                                  self.cfg.action_repeat, self.cfg.seed, self.cfg.camera)
         self.eval_env = meta.make(self.cfg.task_name, self.cfg.frame_stack,
-                                  self.cfg.action_repeat, self.cfg.seed)
+                                  self.cfg.action_repeat, self.cfg.seed, self.cfg.camera)
         # create replay buffer
         data_specs = (self.train_env.observation_spec(),
                       self.train_env.action_spec(),
@@ -76,7 +77,7 @@ class Workspace:
         self._replay_iter = None
 
         self.video_recorder = VideoRecorder(
-            self.work_dir if self.cfg.save_video else None)
+            self.work_dir if self.cfg.save_video else None, camera=self.cfg.camera)
         self.train_video_recorder = TrainVideoRecorder(
             self.work_dir if self.cfg.save_train_video else None)
 
@@ -212,6 +213,7 @@ def main(cfg):
     root_dir = Path.cwd()
     workspace = W(cfg)
     snapshot = root_dir / 'snapshot.pt'
+    print(snapshot)
     if snapshot.exists():
         print(f'resuming: {snapshot}')
         workspace.load_snapshot()

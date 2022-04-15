@@ -6,7 +6,7 @@ from collections import deque
 from typing import Any, NamedTuple
 from dm_env import specs
 import numpy as np
-
+import mujoco_py
 
 class ActionRepeatWrapper():
     def __init__(self, env, num_repeats):
@@ -38,7 +38,7 @@ class ActionRepeatWrapper():
 
 
 class FrameStackWrapper():
-    def __init__(self, env, num_frames):
+    def __init__(self, env, num_frames, camera):
         self._env = env
         self._num_frames = num_frames
         self._frames = deque([], maxlen=num_frames)
@@ -48,6 +48,15 @@ class FrameStackWrapper():
                                             minimum=0,
                                             maximum=255,
                                             name='observation')
+        self._camera = camera
+        self._camera_settings = {
+            "lexa": dict(distance=0.6, lookat=[0, 0.65, 0], azimuth=90, elevation=41+180),
+            "latco_hammer": dict(distance=0.8, lookat=[0.2, 0.65, -0.1], azimuth=220, elevation=-140),
+            "latco_others": dict(distance=2.6, lookat=[1.1, 1.1, -0.1], azimuth=205, elevation=-165)
+            }                                            
+        if self._camera == "lexa" or self._camera == "latco_hammer" or self._camera == "latco_others":
+            self._cam = self._camera_settings[self._camera]
+            self._env.viewer = mujoco_py.MjRenderContextOffscreen(self._env.sim, -1)
 
     def _transform_observation(self, time_step):
         assert len(self._frames) == self._num_frames
@@ -58,14 +67,26 @@ class FrameStackWrapper():
     def reset(self):
         obs = self._env.reset()
         time_step = {"observation": obs, "reward": 0, "done": False, "info": {}, "discount": 1.0, "is_last": False}
-        pixels = self._env.render(offscreen=True, resolution=(84, 84), camera_name='topview') 
+        if self._camera == "lexa" or self._camera == "latco_hammer" or self._camera == "latco_others":
+            self._env.viewer.cam.distance, self._env.viewer.cam.azimuth, self._env.viewer.cam.elevation = self._cam["distance"], self._cam["azimuth"], self._cam["elevation"]
+            self._env.viewer.cam.lookat[0], self._env.viewer.cam.lookat[1], self._env.viewer.cam.lookat[2] = self._cam["lookat"][0], self._cam["lookat"][1], self._cam["lookat"][2] 
+            self._env.viewer.render(84, 84)
+            pixels = self._env.viewer.read_pixels(84, 84)[0]
+        else:      
+            pixels = self._env.render(offscreen=True, resolution=(84, 84), camera_name=self._camera)
         for _ in range(self._num_frames):
             self._frames.append(pixels.transpose(2, 0, 1))
         return self._transform_observation(time_step)
 
     def step(self, action):
         time_step = self._env.step(action)
-        pixels = self._env.render(offscreen=True, resolution=(84, 84), camera_name='topview') 
+        if self._camera == "lexa" or self._camera == "latco_hammer" or self._camera == "latco_others":
+            self._env.viewer.cam.distance, self._env.viewer.cam.azimuth, self._env.viewer.cam.elevation = self._cam["distance"], self._cam["azimuth"], self._cam["elevation"]
+            self._env.viewer.cam.lookat[0], self._env.viewer.cam.lookat[1], self._env.viewer.cam.lookat[2] = self._cam["lookat"][0], self._cam["lookat"][1], self._cam["lookat"][2] 
+            self._env.viewer.render(84, 84)
+            pixels = self._env.viewer.read_pixels(84, 84)[0]
+        else:      
+            pixels = self._env.render(offscreen=True, resolution=(84, 84), camera_name=self._camera)        
         for _ in range(self._num_frames):
             self._frames.append(pixels.transpose(2, 0, 1))
         return self._transform_observation(time_step)
@@ -150,13 +171,13 @@ class ExtendedTimeStepWrapper():
     def __getattr__(self, name):
         return getattr(self._env, name)
 
-def make(name, frame_stack, action_repeat, seed):
+def make(name, frame_stack, action_repeat, seed, camera):
     from metaworld.envs import ALL_V2_ENVIRONMENTS_GOAL_OBSERVABLE
     task = name.replace("_", "-") + "-v2-goal-observable"
     env = ALL_V2_ENVIRONMENTS_GOAL_OBSERVABLE[task]()
     env = ActionDTypeWrapper(env, np.float32)
     env = ActionRepeatWrapper(env, action_repeat)
     # stack several frames
-    env = FrameStackWrapper(env, frame_stack)
+    env = FrameStackWrapper(env, frame_stack, camera)
     env = ExtendedTimeStepWrapper(env)
     return env

@@ -13,7 +13,7 @@ num_seed_frames: 4000
 eval_every_frames: 10000
 num_eval_episodes: 10
 # snapshot
-save_snapshot: false
+save_snapshot: true
 # replay buffer
 replay_buffer_size: 1000000
 replay_buffer_num_workers: 4
@@ -30,6 +30,7 @@ experiment: exp
 # agent
 lr: 1e-4
 feature_dim: 50
+camera: topview
 
 agent:
   _target_: drqv2.DrQV2Agent
